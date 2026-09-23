@@ -128,7 +128,7 @@ export async function runPipeline({ limit = 50, qualify = true, headless = true 
     return;
   }
 
-  console.log(`\n[pipeline] qualifying ${leads.length} lead(s) with ${config.models.qualify}`);
+  console.log(`\n[pipeline] qualifying ${leads.length} lead(s) with ${config.models.qualify.provider}:${config.models.qualify.model}`);
   const counts = {};
   for (const lead of leads) {
     const fresh = db.prepare('SELECT * FROM leads WHERE id = ?').get(lead.id);
@@ -156,7 +156,7 @@ export async function runQualifyOnly({ limit = 50 } = {}) {
   `).all(limit);
 
   if (!leads.length) return console.log('[qualify] nothing waiting.');
-  console.log(`[qualify] ${leads.length} lead(s) with ${config.models.qualify}`);
+  console.log(`[qualify] ${leads.length} lead(s) with ${config.models.qualify.provider}:${config.models.qualify.model}`);
 
   for (const lead of leads) {
     try {

@@ -1,0 +1,59 @@
+/* Small supplement to style.css for the brokers page -- reuses all of
+   style.css's tokens/classes (.btn, .modal, .toast, table/thead/tbody) and
+   only adds the handful of things that page doesn't already have. */
+
+.connect-main { padding: 14px 16px 60px; display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: var(--shadow); padding: 16px 18px;
+}
+.panel h2 { margin: 0 0 10px; font-size: 13.5px; font-weight: 650; }
+.panel table { border: 0; box-shadow: none; }
+
+.field-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.field-row input[type="text"] {
+  flex: 1 1 200px; font: inherit; padding: 6px 9px;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--bg); color: var(--ink);
+}
+.field-row input[type="text"]:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px; border-color: var(--accent);
+}
+
+.c-act { width: 140px; }
+
+.wa-status { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; }
+.wa-status.disconnected { background: color-mix(in srgb, var(--ink-faint) 15%, var(--panel)); color: var(--ink-soft); }
+.wa-status.connecting, .wa-status.qr_ready { background: var(--amber-bg); color: var(--amber); }
+.wa-status.connected { background: var(--green-bg); color: var(--green); }
+.wa-status.auth_failed { background: #fde8e8; color: #a52121; }
+@media (prefers-color-scheme: dark) {
+  .wa-status.auth_failed { background: #3a1616; color: #f08a8a; }
+}
+.wa-phone { color: var(--ink-faint); font-size: 11px; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.wa-current { margin-bottom: 12px; }
+
+.qr-box { display: flex; align-items: center; justify-content: center; min-height: 220px; }
+.qr-box img { width: 220px; height: 220px; border-radius: 6px; }
+.qr-box .spinner { color: var(--ink-faint); font-size: 12.5px; }
+
+/* ---------- login / signup ---------- */
+.auth-main {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: var(--bg);
+}
+.auth-panel { width: 100%; max-width: 340px; }
+.field-row.stacked { flex-direction: column; align-items: stretch; }
+.field-row.stacked input, .field-row.stacked button { width: 100%; }
+.field-row.stacked button { margin-top: 4px; padding: 8px 11px; }
+.auth-error {
+  margin: 10px 0 0; padding: 8px 10px; border-radius: 6px;
+  background: #fde8e8; color: #a52121; font-size: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  .auth-error { background: #3a1616; color: #f08a8a; }
+}
+.auth-switch { margin: 14px 0 0; font-size: 12px; color: var(--ink-soft); text-align: center; }
+.auth-switch a { color: var(--accent); }

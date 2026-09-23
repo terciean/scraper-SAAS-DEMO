@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign up — Impact Innovations Media</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="connect.css">
+</head>
+<body>
+  <main class="auth-main">
+    <section class="panel auth-panel">
+      <h2>Broker sign up</h2>
+      <div class="field-row stacked">
+        <input id="name" type="text" placeholder="Your name" autocomplete="name">
+        <input id="email" type="email" placeholder="Email" autocomplete="username">
+        <input id="password" type="password" placeholder="Password (8+ characters)" autocomplete="new-password">
+        <button class="btn primary" id="submit">Sign up</button>
+      </div>
+      <p class="auth-error" id="error" hidden></p>
+      <p class="auth-switch">Already have an account? <a href="/login.html">Log in</a></p>
+    </section>
+  </main>
+  <script src="signup.js"></script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 {
   "defaultCountry": "ZA",
   "models": {
-    "classifyReply": "claude-haiku-4-5-20251001",
-    "qualify": "claude-haiku-4-5-20251001"
+    "classifyReply": { "provider": "claude", "model": "claude-haiku-4-5-20251001" },
+    "qualify": { "provider": "claude", "model": "claude-haiku-4-5-20251001" }
   },
   "scrape": {
     "dailyTarget": 120,

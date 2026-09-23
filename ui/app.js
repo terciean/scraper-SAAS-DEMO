@@ -10,6 +10,9 @@ const api = async (path, body) => {
   const res = await fetch(path, body
     ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     : undefined);
+  // Session expired mid-use -- bounce to login rather than rendering an
+  // {error:'unauthorized'} payload as if it were a batch of leads.
+  if (res.status === 401) { window.location.href = '/login.html'; return new Promise(() => {}); }
   return res.json();
 };
 
@@ -180,6 +183,10 @@ rowsEl.addEventListener('change', async (e) => {
 });
 
 document.getElementById('refresh').addEventListener('click', () => load({ announceNew: true }));
+document.getElementById('logout').addEventListener('click', async () => {
+  await api('/api/auth/logout', {});
+  window.location.href = '/login.html';
+});
 document.getElementById('hideHint').addEventListener('click', () => {
   document.getElementById('hint').hidden = true;
   try { localStorage.setItem('hideHint', '1'); } catch { /* private mode */ }

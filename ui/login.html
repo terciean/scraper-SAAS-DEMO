@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in — Impact Innovations Media</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="connect.css">
+</head>
+<body>
+  <main class="auth-main">
+    <section class="panel auth-panel">
+      <h2>Log in</h2>
+      <div class="field-row stacked">
+        <input id="email" type="email" placeholder="Email" autocomplete="username">
+        <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+        <button class="btn primary" id="submit">Log in</button>
+      </div>
+      <p class="auth-error" id="error" hidden></p>
+      <p class="auth-switch">No account yet? <a href="/signup.html">Sign up</a></p>
+    </section>
+  </main>
+  <script src="login.js"></script>
+</body>
+</html>

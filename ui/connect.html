@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your WhatsApp — Impact Innovations Media</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="connect.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Your WhatsApp</h1>
+      <span class="sub" id="whoami">loading…</span>
+    </div>
+    <div class="actions">
+      <a class="btn ghost" href="/">← Board</a>
+      <button class="btn ghost" id="logout">Log out</button>
+    </div>
+  </header>
+
+  <main class="connect-main">
+    <section class="panel">
+      <h2>Connection status</h2>
+      <div class="wa-current">
+        <span class="wa-status disconnected" id="statusBadge">not connected</span>
+        <span class="wa-phone" id="phoneLabel"></span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn primary" id="connectBtn">Connect WhatsApp</button>
+        <button class="btn ghost" id="disconnectBtn" hidden>Disconnect</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal" id="qrModal" hidden>
+    <div class="modal-card">
+      <h2>Connect WhatsApp</h2>
+      <p class="modal-hint" id="qrHint">Opening a browser and requesting a QR code…</p>
+      <div class="qr-box" id="qrBox"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="qrClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+  <script src="connect.js"></script>
+</body>
+</html>

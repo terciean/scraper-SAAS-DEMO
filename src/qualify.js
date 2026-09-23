@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { callClaudeCli, cliAvailable } from './cliModel.js';
+import { callModel, modelAvailable } from './llm.js';
 
 const QUALIFICATION_SCHEMA = {
   type: 'object',
@@ -104,17 +104,16 @@ function evidence(lead, web) {
 }
 
 export function qualifierAvailable() {
-  return cliAvailable();
+  return modelAvailable(config.models?.qualify);
 }
 
 /** Qualify one enriched lead against the brief. Returns null when unavailable. */
 export async function qualifyLead(lead, web) {
-  if (!cliAvailable()) return null;
+  if (!qualifierAvailable()) return null;
 
-  return callClaudeCli({
+  return callModel(config.models?.qualify, {
     system: SYSTEM,
     prompt: evidence(lead, web),
-    model: config.models?.qualify ?? 'claude-haiku-4-5-20251001',
     jsonSchema: QUALIFICATION_SCHEMA,
   });
 }

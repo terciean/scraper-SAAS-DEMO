@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { callClaudeCli, cliAvailable } from './cliModel.js';
+import { callModel, modelAvailable } from './llm.js';
 import {
   classifyReply as regexOpener,
   classifyPostPitch as regexPostPitch,
@@ -77,16 +77,17 @@ Examples:
 Reply with the single label word and nothing else.`;
 
 export function classifierMode() {
-  return cliAvailable() ? (config.models?.classifyReply ?? 'claude-haiku-4-5-20251001') : 'regex';
+  const spec = config.models?.classifyReply;
+  return modelAvailable(spec) ? `${spec?.provider ?? 'claude'}:${spec?.model ?? 'claude-haiku-4-5-20251001'}` : 'regex';
 }
 
 async function askModel(system, userContent, labels) {
-  if (!cliAvailable()) return null;
+  const spec = config.models?.classifyReply;
+  if (!modelAvailable(spec)) return null;
 
-  const out = callClaudeCli({
+  const out = await callModel(spec, {
     system,
     prompt: userContent,
-    model: config.models?.classifyReply ?? 'claude-haiku-4-5-20251001',
     jsonSchema: {
       type: 'object',
       properties: { label: { type: 'string', enum: labels } },
@@ -104,7 +105,7 @@ async function askModel(system, userContent, labels) {
  * the listener from recording the reply.
  */
 export async function classifyInbound(text, lead) {
-  if (!cliAvailable()) return { label: regexOpener(text), via: 'regex' };
+  if (!modelAvailable(config.models?.classifyReply)) return { label: regexOpener(text), via: 'regex' };
   try {
     const label = await askModel(
       OPENER_SYSTEM,
@@ -112,7 +113,7 @@ export async function classifyInbound(text, lead) {
       OPENER_LABELS,
     );
     return label
-      ? { label, via: 'haiku' }
+      ? { label, via: classifierMode() }
       : { label: regexOpener(text), via: 'regex (unparsed model output)' };
   } catch (err) {
     return { label: regexOpener(text), via: `regex (${err.message.slice(0, 60)})` };
@@ -121,7 +122,7 @@ export async function classifyInbound(text, lead) {
 
 /** Classify a reply that arrives after the pitch. Same fallback contract. */
 export async function classifyAfterPitch(text) {
-  if (!cliAvailable()) return { label: regexPostPitch(text), via: 'regex' };
+  if (!modelAvailable(config.models?.classifyReply)) return { label: regexPostPitch(text), via: 'regex' };
   try {
     const label = await askModel(
       POST_SYSTEM,
@@ -129,7 +130,7 @@ export async function classifyAfterPitch(text) {
       POST_LABELS,
     );
     return label
-      ? { label, via: 'haiku' }
+      ? { label, via: classifierMode() }
       : { label: regexPostPitch(text), via: 'regex (unparsed model output)' };
   } catch (err) {
     return { label: regexPostPitch(text), via: `regex (${err.message.slice(0, 60)})` };

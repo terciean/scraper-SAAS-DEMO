@@ -19,26 +19,39 @@ function chromePath() {
 }
 
 // Session is persisted under data/wa-session, so the QR scan is a one-time step.
-export function createClient() {
+//
+// `clientId` namespaces LocalAuth's on-disk session under
+// `<dataPath>/session-<clientId>/`, which is enough by itself to run several
+// Client instances concurrently without colliding -- so broker sessions get
+// their own dataPath (data/wa-sessions, plural) entirely separate from the
+// single-operator session above, and never need per-broker dataPath. Calling
+// createClient() with no args (the existing single-operator call sites in
+// send.js/listen.js) is untouched: no clientId, same dataPath, same
+// `headless: false` default.
+export function createClient({ clientId, headless = false } = {}) {
+  const dataPath = clientId
+    ? join(ROOT, 'data', 'wa-sessions')
+    : join(ROOT, 'data', 'wa-session');
   return new Client({
-    authStrategy: new LocalAuth({ dataPath: join(ROOT, 'data', 'wa-session') }),
+    authStrategy: new LocalAuth({ dataPath, clientId }),
     puppeteer: {
-      headless: false,
+      headless,
       executablePath: chromePath(),
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     },
   });
 }
 
-export function startClient(client, { onReady, onMessage } = {}) {
+export function startClient(client, { onReady, onMessage, onQr, onAuthFailure, onDisconnected } = {}) {
   client.on('qr', (qr) => {
+    if (onQr) { onQr(qr); return; }
     console.log('\nScan this QR with WhatsApp > Linked devices:\n');
     qrcode.generate(qr, { small: true });
   });
 
   client.on('authenticated', () => console.log('[wa] authenticated'));
-  client.on('auth_failure', (m) => console.error('[wa] auth failure:', m));
-  client.on('disconnected', (r) => console.error('[wa] disconnected:', r));
+  client.on('auth_failure', (m) => { console.error('[wa] auth failure:', m); onAuthFailure?.(m); });
+  client.on('disconnected', (r) => { console.error('[wa] disconnected:', r); onDisconnected?.(r); });
 
   client.on('ready', async () => {
     console.log('[wa] ready');

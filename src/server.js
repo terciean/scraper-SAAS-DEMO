@@ -13,6 +13,13 @@ import { runPipeline } from './pipeline.js';
 import { qualifierAvailable } from './qualify.js';
 import { importPastedLeads } from './importLeads.js';
 import { markContacted } from './exclusions.js';
+import { createBroker, getBroker, getBrokerByEmail } from './brokers.js';
+import { getSessionState, connectBroker, disconnectBroker } from './wa/sessionManager.js';
+import QRCode from 'qrcode';
+import {
+  verifyPassword, createSession, getSessionBroker, destroySession,
+  sessionCookieHeader, sessionToken,
+} from './auth.js';
 
 const UI = join(ROOT, 'ui');
 const now = () => new Date().toISOString();
@@ -252,6 +259,67 @@ const ROUTES = {
     db.prepare('UPDATE leads SET no_response = ? WHERE id = ?').run(value ? 1 : 0, id);
     json(res, { ok: true });
   },
+
+  'POST /api/auth/signup': async (req, res) => {
+    const { name, email, password } = await readBody(req);
+    const r = createBroker({ name, email, password });
+    if (r.error) return json(res, r, 400);
+    const token = createSession(r.broker.id);
+    res.setHeader('Set-Cookie', sessionCookieHeader(token));
+    json(res, { ok: true, broker: { id: r.broker.id, name: r.broker.name, email: r.broker.email } });
+  },
+
+  'POST /api/auth/login': async (req, res) => {
+    const { email, password } = await readBody(req);
+    const broker = email ? getBrokerByEmail(email.trim()) : null;
+    if (!broker || !verifyPassword(password || '', broker.password_hash)) {
+      return json(res, { error: 'incorrect email or password' }, 401);
+    }
+    const token = createSession(broker.id);
+    res.setHeader('Set-Cookie', sessionCookieHeader(token));
+    json(res, { ok: true, broker: { id: broker.id, name: broker.name, email: broker.email } });
+  },
+
+  'POST /api/auth/logout': (req, res) => {
+    destroySession(sessionToken(req));
+    res.setHeader('Set-Cookie', sessionCookieHeader(null, { clear: true }));
+    json(res, { ok: true });
+  },
+
+  'GET /api/auth/me': (req, res) => {
+    const b = req.broker;
+    json(res, { broker: { id: b.id, name: b.name, email: b.email } });
+  },
+
+  // Fire-and-forget, same shape as POST /api/scrape: connectBroker() launches
+  // a real browser and talks to WhatsApp Web, so the response reflects
+  // whatever state is available the instant it's called (usually
+  // 'connecting') and the UI polls the status route below for the QR/outcome.
+  // Scoped to req.broker (the logged-in session), never a client-supplied id
+  // -- that was the actual hole a login flow needed to close: previously any
+  // caller could pass any brokerId and connect/disconnect someone else's
+  // WhatsApp session.
+  'POST /api/broker-whatsapp/connect': (req, res) => {
+    const state = connectBroker(req.broker.id);
+    json(res, { ok: true, status: state.status });
+  },
+
+  'GET /api/broker-whatsapp/status': async (req, res) => {
+    const broker = getBroker(req.broker.id);
+    const live = getSessionState(broker.id);
+    const qrDataUrl = live.qr ? await QRCode.toDataURL(live.qr) : null;
+    json(res, {
+      status: live.status,
+      qrDataUrl,
+      phone: live.phone ?? broker.wa_phone,
+      error: live.error ?? broker.wa_last_error,
+    });
+  },
+
+  'POST /api/broker-whatsapp/disconnect': async (req, res) => {
+    await disconnectBroker(req.broker.id);
+    json(res, { ok: true });
+  },
 };
 
 async function serveStatic(req, res, pathname) {
@@ -268,41 +336,75 @@ async function serveStatic(req, res, pathname) {
 export function startServer({ open = true } = {}) {
   const port = config.ui?.port ?? 5173;
 
+  // /api/auth/me deliberately excluded from PUBLIC_AUTH_ROUTES below: it
+  // reports on the current session, so unlike signup/login/logout it needs
+  // req.broker set by the gate, not skipped by it.
+  const PUBLIC_AUTH_ROUTES = new Set(['/api/auth/signup', '/api/auth/login', '/api/auth/logout']);
+
   const server = createServer(async (req, res) => {
-    const url = new URL(req.url, `http://localhost:${port}`);
-    const key = `${req.method} ${url.pathname}`;
+    try {
+      const url = new URL(req.url, `http://localhost:${port}`);
+      const { pathname } = url;
 
-    if (ROUTES[key]) return ROUTES[key](req, res);
+      // Global auth gate. Public without a session: the login/signup pages
+      // themselves, the three routes above, and any stylesheet/script (so
+      // those pages can load their own styling before you're logged in at
+      // all). Everything else -- the board, /connect.html, every other
+      // /api/* route, the per-lead vCard routes below -- requires a session.
+      const isPublic = /\.(css|js)$/.test(pathname)
+        || pathname === '/login.html' || pathname === '/signup.html'
+        || PUBLIC_AUTH_ROUTES.has(pathname);
 
-    // Per-lead vCard download: /vcf/12 -> one contact to add on the phone.
-    const vcf = url.pathname.match(/^\/vcf\/(\d+)$/);
-    if (vcf) {
-      const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(Number(vcf[1]));
-      if (!lead) { res.writeHead(404); return res.end('not found'); }
-      db.prepare('UPDATE leads SET contact_exported_at = ? WHERE id = ?').run(now(), lead.id);
-      const body = vcardFor(lead);
-      res.writeHead(200, {
-        'Content-Type': MIME['.vcf'],
-        'Content-Disposition': `attachment; filename="${cleanBrandName(lead.brand_name).replace(/[^\w ]/g, '')}.vcf"`,
-      });
-      return res.end(body);
+      if (!isPublic) {
+        const broker = getSessionBroker(sessionToken(req));
+        if (!broker) {
+          if (pathname.startsWith('/api/')) return json(res, { error: 'unauthorized' }, 401);
+          res.writeHead(302, { Location: '/login.html' });
+          return res.end();
+        }
+        req.broker = broker;
+      }
+
+      const key = `${req.method} ${pathname}`;
+      if (ROUTES[key]) return await ROUTES[key](req, res, url);
+
+      // Per-lead vCard download: /vcf/12 -> one contact to add on the phone.
+      const vcf = url.pathname.match(/^\/vcf\/(\d+)$/);
+      if (vcf) {
+        const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(Number(vcf[1]));
+        if (!lead) { res.writeHead(404); return res.end('not found'); }
+        db.prepare('UPDATE leads SET contact_exported_at = ? WHERE id = ?').run(now(), lead.id);
+        const body = vcardFor(lead);
+        res.writeHead(200, {
+          'Content-Type': MIME['.vcf'],
+          'Content-Disposition': `attachment; filename="${cleanBrandName(lead.brand_name).replace(/[^\w ]/g, '')}.vcf"`,
+        });
+        return res.end(body);
+      }
+
+      // Whole batch as one file -- import once, get all 40 contacts.
+      if (url.pathname === '/vcf-batch') {
+        const ids = loadBatch().map((l) => l.id);
+        if (!ids.length) { res.writeHead(404); return res.end('empty batch'); }
+        const rows = db.prepare(`SELECT * FROM leads WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+        const mark = db.prepare('UPDATE leads SET contact_exported_at = ? WHERE id = ?');
+        for (const r of rows) mark.run(now(), r.id);
+        res.writeHead(200, {
+          'Content-Type': MIME['.vcf'],
+          'Content-Disposition': 'attachment; filename="lead-batch.vcf"',
+        });
+        return res.end(rows.map(vcardFor).join('\r\n') + '\r\n');
+      }
+
+      return serveStatic(req, res, url.pathname);
+    } catch (err) {
+      // A bug in one route must not take the whole board offline for every
+      // broker -- this replaces an uncaught-exception process crash (the
+      // Node default for an async handler that throws) with a 500 for that
+      // one request.
+      console.error('[server] unhandled error:', err);
+      if (!res.headersSent) json(res, { error: 'internal error' }, 500);
     }
-
-    // Whole batch as one file -- import once, get all 40 contacts.
-    if (url.pathname === '/vcf-batch') {
-      const ids = loadBatch().map((l) => l.id);
-      if (!ids.length) { res.writeHead(404); return res.end('empty batch'); }
-      const rows = db.prepare(`SELECT * FROM leads WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
-      const mark = db.prepare('UPDATE leads SET contact_exported_at = ? WHERE id = ?');
-      for (const r of rows) mark.run(now(), r.id);
-      res.writeHead(200, {
-        'Content-Type': MIME['.vcf'],
-        'Content-Disposition': 'attachment; filename="lead-batch.vcf"',
-      });
-      return res.end(rows.map(vcardFor).join('\r\n') + '\r\n');
-    }
-
-    return serveStatic(req, res, url.pathname);
   });
 
   const url = `http://localhost:${port}`;
