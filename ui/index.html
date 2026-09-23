@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lead Board — Impact Innovations Media</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Lead Board</h1>
+      <span class="sub" id="batchLabel">loading…</span>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="actions">
+      <a class="btn ghost" href="/vcf-batch" download>⬇ Save all contacts</a>
+      <button class="btn ghost" id="refresh">↻ Refresh</button>
+      <button class="btn ghost" id="openImport">+ Paste leads</button>
+      <button class="btn primary" id="getLeads" title="Opens a real Chrome window and scrapes Google Maps — takes a few minutes">+ Get new leads</button>
+    </div>
+  </header>
+
+  <div class="hint" id="hint">
+    <strong>How it works:</strong>
+    <span class="step"><b>1</b> Save all contacts, open the file so the names show in WhatsApp.</span>
+    <span class="step"><b>2</b> <span class="chip chip-1">Opener</span> opens WhatsApp Web with the message typed — press send.</span>
+    <span class="step"><b>3</b> When they confirm, type their name and hit <span class="chip chip-2">Pitch</span>.</span>
+    <span class="step">Already sent? The button turns into <b>↻ resend</b> — click any time to reopen the same message.</span>
+    <button class="x" id="hideHint" title="hide">×</button>
+  </div>
+
+  <!-- Stays up until dismissed -- a scrape that comes up short of what you
+       asked for must not disappear in a 2-second toast and leave the board
+       silently short. -->
+  <div class="warnbar" id="scrapeWarning" hidden>
+    <span id="scrapeWarningText"></span>
+    <button class="x" id="hideScrapeWarning" title="dismiss">×</button>
+  </div>
+
+  <div class="modal" id="importModal" hidden>
+    <div class="modal-card">
+      <h2>Paste leads</h2>
+      <p class="modal-hint">
+        One lead per line, comma-separated:
+        <code>Business Name, Phone, Category (optional), Website (optional)</code>
+        <br>Runs through the same chain filter and exclusion list as a live scrape — duplicates by phone are skipped automatically.
+      </p>
+      <textarea id="importText" placeholder="Glow Skin Studio, 082 123 4567, Skincare brand, https://glowskin.co.za&#10;Pure Health, 082 555 1234, Supplement store"></textarea>
+      <div class="modal-result" id="importResult" hidden></div>
+      <div class="modal-actions">
+        <button class="btn ghost" id="importCancel">Cancel</button>
+        <button class="btn primary" id="importSubmit">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <table id="sheet">
+      <thead>
+        <tr>
+          <th class="c-n">#</th>
+          <th class="c-brand">Business</th>
+          <th class="c-phone">Number</th>
+          <th class="c-cat">Category</th>
+          <th class="c-vcf">Contact</th>
+          <th class="c-act">Opener</th>
+          <th class="c-name">Their name</th>
+          <th class="c-act">Pitch</th>
+          <th class="c-state">Status</th>
+          <th class="c-flag" title="Your own tracking — check if they said no or never replied">No reply</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="empty" id="empty" hidden></p>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

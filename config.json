@@ -1,0 +1,115 @@
+{
+  "defaultCountry": "ZA",
+  "models": {
+    "classifyReply": "claude-haiku-4-5-20251001",
+    "qualify": "claude-haiku-4-5-20251001"
+  },
+  "scrape": {
+    "dailyTarget": 120,
+    "maxPerQuery": 40,
+    "headless": false,
+    "requirePhone": true,
+    "delayMsBetweenCards": [
+      700,
+      1800
+    ],
+    "niches": [
+      "supplement store",
+      "vitamin store",
+      "natural health products",
+      "health food store",
+      "skincare brand",
+      "skin care clinic",
+      "aesthetic clinic",
+      "beauty clinic",
+      "medical aesthetics",
+      "hair growth clinic",
+      "haircare products",
+      "weight loss clinic",
+      "wellness centre",
+      "sports nutrition store",
+      "herbal products supplier",
+      "day spa"
+    ],
+    "cities": [
+      "Johannesburg",
+      "Sandton",
+      "Pretoria",
+      "Cape Town",
+      "Durban",
+      "Port Elizabeth",
+      "Bloemfontein",
+      "Stellenbosch"
+    ]
+  },
+  "enrich": {
+    "concurrency": 4,
+    "useBrowserFallback": true
+  },
+  "send": {
+    "dailyCap": 25,
+    "intervalSecondsBetweenMessages": [
+      180,
+      420
+    ],
+    "sendWindow": {
+      "startHour": 8,
+      "endHour": 17
+    },
+    "sendDays": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "pitchDelaySeconds": [
+      8,
+      25
+    ],
+    "warmup": {
+      "enabled": true,
+      "startCap": 5,
+      "incrementPerDay": 3
+    },
+    "onlyTier": "outreach_ready",
+    "autoReplyPostPitch": false,
+    "safety": {
+      "enabled": true,
+      "maxOptOutsPerDay": 2,
+      "maxWrongNumbersPerDay": 4,
+      "rollingWindow": 30,
+      "maxNegativeRate": 0.25,
+      "requireContactsExported": true
+    }
+  },
+  "templates": {
+    "opener": "Hi there, is this the right contact for {{brand_name}}?",
+    "pitch": "Thank you for confirming, this is Tristan Lindsay from Impact Innovations Media.\nWe’ve generated over R5 million in sales through Facebook advertising for a business in the health and wellness space.\nI came across your brand and think there may be an opportunity to apply a similar acquisition approach to your products.\nWould you be open to a quick conversation?",
+    "pitchNamed": "Thank you for confirming {{name}}, this is Tristan Lindsay from Impact Innovations Media.\nWe’ve generated over R5 million in sales through Facebook advertising for a business in the health and wellness space.\nI came across your brand and think there may be an opportunity to apply a similar acquisition approach to your products.\nWould you be open to a quick conversation?",
+    "pitchProduct": "Thank you for confirming, this is Tristan Lindsay from Impact Innovations Media.\nWe’ve generated over R5 million in sales through Facebook advertising for a business in the health and wellness space.\nI came across your brand and think there may be an opportunity to help you generate more online sales through a similar acquisition approach.\nWould it be useful if I sent you a short breakdown here?",
+    "pitchProductNamed": "Thank you for confirming {{name}}, this is Tristan Lindsay from Impact Innovations Media.\nWe’ve generated over R5 million in sales through Facebook advertising for a business in the health and wellness space.\nI came across your brand and think there may be an opportunity to help you generate more online sales through a similar acquisition approach.\nWould it be useful if I sent you a short breakdown here?",
+    "pitchClinic": "Thank you for confirming, this is Tristan Lindsay from Impact Innovations Media.\nWe’ve generated over R5 million in sales through Facebook advertising for a business in the health and wellness space.\nI came across your clinic and think there may be an opportunity to generate more qualified bookings through Facebook advertising.\nWould it be useful if I sent you a short breakdown here?",
+    "pitchClinicNamed": "Thank you for confirming {{name}}, this is Tristan Lindsay from Impact Innovations Media.\nWe’ve generated over R5 million in sales through Facebook advertising for a business in the health and wellness space.\nI came across your clinic and think there may be an opportunity to generate more qualified bookings through Facebook advertising.\nWould it be useful if I sent you a short breakdown here?",
+    "pitchRouting": "Thank you for confirming, this is Tristan Lindsay from Impact Innovations Media.\nWe help South African health and wellness businesses grow through Facebook advertising.\nWho would be the best person to speak to regarding marketing and customer acquisition?",
+    "pitchRoutingNamed": "Thank you for confirming {{name}}, this is Tristan Lindsay from Impact Innovations Media.\nWe help South African health and wellness businesses grow through Facebook advertising.\nWho would be the best person to speak to regarding marketing and customer acquisition?"
+  },
+  "contacts": {
+    "namePrefix": "IIM "
+  },
+  "proof": {
+    "headline": "We've generated over R5 million in sales through Facebook advertising for a business in the same health/wellness industry.",
+    "clients": [
+      "Verdant Life",
+      "Supremo Liposomal",
+      "Muti Life",
+      "Full circle health club",
+      "Jeremy Valerga (Fitness personal brand)"
+    ]
+  },
+  "ui": {
+    "port": 5173,
+    "batchSize": 20,
+    "scrapeBatch": 10
+  }
+}
