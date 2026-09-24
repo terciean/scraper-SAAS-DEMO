@@ -2,6 +2,7 @@ node_modules/
 data/
 .env
 .claude/
+.wwebjs_cache/
 
 # Real WhatsApp conversation screenshots from live testing -- contain actual
 # lead phone numbers and message content, never share these.

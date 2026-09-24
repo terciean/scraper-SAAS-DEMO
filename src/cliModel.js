@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 // Routes model calls through the already-authenticated `claude` CLI instead
 // of the Anthropic SDK, so qualification and reply classification never need
@@ -7,6 +7,9 @@ import { spawnSync } from 'node:child_process';
 
 let available = null;
 
+// This one stays synchronous deliberately: it's a fast (<1s) --version check,
+// runs once per process and is memoized after, not the repeated per-lead
+// call below -- blocking briefly here at first use is not the same problem.
 export function cliAvailable() {
   if (available !== null) return available;
   try {
@@ -23,6 +26,14 @@ export function cliAvailable() {
  * `prompt` goes over stdin (not argv) so long scraped page text never risks
  * the OS command-line length limit. With `jsonSchema`, the CLI validates and
  * pre-parses the reply for us via --json-schema / structured_output.
+ *
+ * Deliberately async (spawn, not spawnSync): this runs inside the same
+ * process as the HTTP server, and each call takes ~30s. spawnSync would
+ * freeze Node's single event loop for that whole time -- not just for the
+ * broker who triggered it, but for every request to the server from anyone,
+ * for as long as a qualification run keeps going (verified live: a 20-lead
+ * qualification pass took the entire board offline for everyone, including
+ * requests that have nothing to do with qualification, for several minutes).
  */
 export function callClaudeCli({ system, prompt, model, jsonSchema }) {
   const args = [
@@ -35,17 +46,29 @@ export function callClaudeCli({ system, prompt, model, jsonSchema }) {
   ];
   if (jsonSchema) args.push('--json-schema', JSON.stringify(jsonSchema));
 
-  const res = spawnSync('claude', args, {
-    input: prompt,
-    encoding: 'utf8',
-    maxBuffer: 20 * 1024 * 1024,
+  return new Promise((resolve, reject) => {
+    const child = spawn('claude', args);
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+
+    child.on('error', (err) => reject(new Error(`claude cli failed to start: ${err.message}`)));
+
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(`claude cli exited ${code}: ${stderr.slice(0, 300)}`));
+      try {
+        const out = JSON.parse(stdout);
+        if (out.is_error) return reject(new Error(`claude cli error: ${String(out.result ?? 'unknown').slice(0, 300)}`));
+        resolve(jsonSchema ? out.structured_output : out.result);
+      } catch (err) {
+        reject(new Error(`claude cli: could not parse output: ${err.message}`));
+      }
+    });
+
+    child.stdin.end(prompt);
   });
-
-  if (res.error) throw new Error(`claude cli failed to start: ${res.error.message}`);
-  if (res.status !== 0) throw new Error(`claude cli exited ${res.status}: ${(res.stderr || '').slice(0, 300)}`);
-
-  const out = JSON.parse(res.stdout);
-  if (out.is_error) throw new Error(`claude cli error: ${String(out.result ?? 'unknown').slice(0, 300)}`);
-
-  return jsonSchema ? out.structured_output : out.result;
 }

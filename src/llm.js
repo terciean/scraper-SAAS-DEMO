@@ -10,9 +10,9 @@ export function modelAvailable(spec) {
   return spec?.provider === 'openai' ? openaiAvailable() : cliAvailable();
 }
 
-// Always async: callClaudeCli is sync (spawnSync) and callOpenAI is async
-// (fetch), but every caller already awaits this inside an async function, so
-// returning a Promise either way is invisible to them.
+// Both callClaudeCli (spawn) and callOpenAI (fetch) are non-blocking and
+// return a Promise -- this stays async too so a third provider added later
+// can freely be either shape without callers caring.
 export async function callModel(spec, { system, prompt, jsonSchema }) {
   const model = spec?.model ?? 'claude-haiku-4-5-20251001';
   return spec?.provider === 'openai'
