@@ -100,7 +100,7 @@ export function buildQueries({ niches, cities, queries }) {
   return out;
 }
 
-export async function scrape({ queries, target, maxPerQuery, headless } = {}) {
+export async function scrape({ queries, target, maxPerQuery, headless, brokerId } = {}) {
   const cfg = config.scrape;
   queries ??= buildQueries(cfg);
   target ??= cfg.dailyTarget;
@@ -156,7 +156,7 @@ export async function scrape({ queries, target, maxPerQuery, headless } = {}) {
           continue;
         }
 
-        const { inserted } = upsertLead({ ...place, phone, source_query: query });
+        const { inserted } = upsertLead({ ...place, phone, source_query: query, assigned_broker_id: brokerId ?? null });
         if (inserted) {
           stats.added += 1;
           console.log(`  + ${place.brand_name} — ${phone}  (${stats.added}/${target})`);

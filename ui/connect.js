@@ -120,5 +120,25 @@ document.getElementById('logout').addEventListener('click', async () => {
   window.location.href = '/login.html';
 });
 
+// ---------- lead-search settings (niches/cities) ----------
+const nichesEl = document.getElementById('niches');
+const citiesEl = document.getElementById('cities');
+
+async function loadSettings() {
+  const s = await api('/api/broker-settings');
+  if (!s.niches) return;
+  nichesEl.value = s.niches;
+  citiesEl.value = s.cities;
+}
+
+document.getElementById('saveSettings').addEventListener('click', async () => {
+  const btn = document.getElementById('saveSettings');
+  btn.disabled = true;
+  await api('/api/broker-settings', { niches: nichesEl.value.trim(), cities: citiesEl.value.trim() });
+  btn.disabled = false;
+  toast('Saved');
+});
+
 loadMe();
 refreshStatus();
+loadSettings();

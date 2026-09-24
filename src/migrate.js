@@ -51,6 +51,12 @@ const COLUMNS = {
 
   // manual tracking — your own call, doesn't drive any pipeline logic
   no_response:       'INTEGER', // 1 = you've marked this as a no/no-reply, toggle any time
+
+  // multi-tenant: which broker this lead belongs to. NULL = the operator's
+  // own legacy pool (everything scraped before brokers existed, and
+  // anything scraped straight from cli.js) -- never shown on the broker web
+  // board, untouched by this migration, still fully usable via cli.js.
+  assigned_broker_id: 'INTEGER',
 };
 
 let added = 0;
@@ -59,6 +65,8 @@ for (const [name, type] of Object.entries(COLUMNS)) {
   db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${type}`);
   added += 1;
 }
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_leads_broker ON leads(assigned_broker_id)');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS exclusions (
@@ -101,11 +109,17 @@ db.exec(`
   );
 `);
 
-// brokers already existed on disk before login was added, so its own new
-// column needs the same additive ALTER-TABLE treatment as `leads` above.
+// brokers already existed on disk before login/settings were added, so its
+// own new columns need the same additive ALTER-TABLE treatment as `leads`.
 const brokerColumns = new Set(db.prepare('PRAGMA table_info(brokers)').all().map((c) => c.name));
-if (!brokerColumns.has('password_hash')) {
-  db.exec('ALTER TABLE brokers ADD COLUMN password_hash TEXT');
+const BROKER_COLUMNS = {
+  password_hash: 'TEXT',
+  niches:        'TEXT', // comma-joined; NULL/empty = fall back to config.json's scrape.niches
+  cities:        'TEXT', // comma-joined; NULL/empty = fall back to config.json's scrape.cities
+};
+for (const [name, type] of Object.entries(BROKER_COLUMNS)) {
+  if (brokerColumns.has(name)) continue;
+  db.exec(`ALTER TABLE brokers ADD COLUMN ${name} ${type}`);
   added += 1;
 }
 

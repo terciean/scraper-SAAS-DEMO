@@ -8,7 +8,7 @@ import { db, logMessage, setStatus } from './db.js';
 import { renderOpener, renderPitch, cleanBrandName } from './templates.js';
 import { bestPhone, phoneType, whatsAppLikelihood } from './phone.js';
 import { isWorkable, assembleBoard, countUnsentWorkable } from './leadFilters.js';
-import { scrape } from './scrape/googlemaps.js';
+import { scrape, buildQueries } from './scrape/googlemaps.js';
 import { runPipeline } from './pipeline.js';
 import { qualifierAvailable } from './qualify.js';
 import { importPastedLeads } from './importLeads.js';
@@ -46,6 +46,16 @@ function json(res, data, status = 200) {
   res.end(body);
 }
 
+// Fetches a lead only if it belongs to the requesting broker -- every route
+// below that touches a lead by id goes through this instead of a bare
+// `SELECT ... WHERE id = ?`, otherwise a logged-in broker could message or
+// mutate a lead assigned to someone else just by guessing an id, the same
+// class of hole the WhatsApp-session brokerId fix closed last session.
+function ownedLead(req, id) {
+  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
+  return lead && lead.assigned_broker_id === req.broker.id ? lead : null;
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     let raw = '';
@@ -60,21 +70,23 @@ function readBody(req) {
  * Working sheet: newest unsent leads (capped) sit at the top so a paste is
  * immediately actionable. Awaiting-reply leads sit below that, uncapped --
  * they stay visible until they reply, and they never steal opener slots.
+ * Scoped to one broker's own pool -- this is the actual tenant boundary:
+ * a broker only ever sees leads assigned to them.
  */
-function loadBatch() {
+function loadBatch(brokerId) {
   const size = config.ui?.batchSize ?? 40;
 
   const candidates = db.prepare(`
-    SELECT * FROM leads WHERE status IN ('new', 'opener_sent', 'confirmed') ORDER BY id
-  `).all();
+    SELECT * FROM leads WHERE status IN ('new', 'opener_sent', 'confirmed') AND assigned_broker_id = ? ORDER BY id
+  `).all(brokerId);
 
   // Leads finished today stay on the sheet, struck through, so the day's work
   // is visible. They sit below the active rows and don't eat into the cap.
   const doneToday = db.prepare(`
     SELECT * FROM leads
-    WHERE date(pitch_sent_at) = date('now','localtime')
+    WHERE date(pitch_sent_at) = date('now','localtime') AND assigned_broker_id = ?
     ORDER BY pitch_sent_at DESC
-  `).all();
+  `).all(brokerId);
 
   const rows = [...assembleBoard(candidates, { size }), ...doneToday];
 
@@ -105,8 +117,8 @@ function loadBatch() {
 // Same isWorkable filter as the table, so the header stats can never claim a
 // count the board itself isn't showing -- that mismatch is exactly what made
 // the tier-filter bug so confusing before it was fixed.
-function counts() {
-  const leads = db.prepare(`SELECT * FROM leads`).all().filter(isWorkable);
+function counts(brokerId) {
+  const leads = db.prepare(`SELECT * FROM leads WHERE assigned_broker_id = ?`).all(brokerId).filter(isWorkable);
   const today = (col) => (l) => l[col] && String(l[col]).slice(0, 10) === new Date().toLocaleDateString('en-CA');
 
   return {
@@ -132,55 +144,69 @@ function vcardFor(lead) {
 
 // Scraping is real minutes of live browser automation, not an HTTP-request-shaped
 // thing -- kicked off fire-and-forget from POST /api/scrape, polled via GET
-// /api/scrape-status. Single in-memory job: this is a one-person tool, and a
-// second live scrape sharing the same browser profile would just collide.
-let scrapeJob = { status: 'idle', message: '', added: 0, shortfall: false };
+// /api/scrape-status. Keyed per broker (Map, in-memory only -- same
+// precedent as wa/sessionManager.js) so two brokers' own on-demand scrapes
+// don't collide with or overwrite each other's job status.
+const scrapeJobs = new Map(); // brokerId -> job
+const idleJob = { status: 'idle', message: '', added: 0, shortfall: false };
+
+// A broker's own niches/cities, comma-parsed -- falling back to config.json's
+// shared defaults when they haven't set any, so a broker who never touches
+// settings gets identical behavior to the single-tenant tool.
+function queriesForBroker(broker) {
+  const split = (s) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : null);
+  const niches = split(broker.niches) ?? config.scrape.niches;
+  const cities = split(broker.cities) ?? config.scrape.cities;
+  return buildQueries({ niches, cities, queries: null });
+}
 
 // "Shortfall" is tracked separately from "error": the scrape ran fine, Chrome
 // didn't crash, nothing threw -- it just could not find as many workable
 // leads as were asked for, because the configured niche x city queries are
 // running dry of new, reachable results. That is a real outcome the UI must
 // say plainly, not a `status: 'done'` that reads the same as a full success.
-async function runScrapeJob(target) {
-  const before = countUnsentWorkable(db);
-  scrapeJob = { status: 'running', message: `opening Chrome, scraping for ${target} new lead(s)…`, added: 0, shortfall: false };
+async function runScrapeJob(broker, target) {
+  const brokerId = broker.id;
+  const before = countUnsentWorkable(db, brokerId);
+  scrapeJobs.set(brokerId, { status: 'running', message: `opening Chrome, scraping for ${target} new lead(s)…`, added: 0, shortfall: false });
   try {
-    const s = await scrape({ target });
-    scrapeJob.added = s.added;
+    const s = await scrape({ target, queries: queriesForBroker(broker), brokerId });
+    const job = scrapeJobs.get(brokerId);
+    job.added = s.added;
     if (s.added > 0) {
-      scrapeJob.message = `found ${s.added}, enriching…`;
-      await runPipeline({ limit: s.added, qualify: qualifierAvailable() });
+      job.message = `found ${s.added}, enriching…`;
+      await runPipeline({ limit: s.added, qualify: qualifierAvailable(), brokerId });
     }
 
     // Re-count after enrichment, not just s.added: enrichment can rescue a
     // landline (a wa.me number found on the site) or reject a lead outright,
     // both of which change how many of what was scraped actually count.
-    const gained = countUnsentWorkable(db) - before;
-    scrapeJob.status = 'done';
+    const gained = countUnsentWorkable(db, brokerId) - before;
+    job.status = 'done';
 
     if (gained >= target) {
-      scrapeJob.message = `added ${gained} new lead(s)`;
-      scrapeJob.shortfall = false;
+      job.message = `added ${gained} new lead(s)`;
+      job.shortfall = false;
     } else if (gained > 0) {
-      scrapeJob.message = `only found ${gained} of the ${target} requested — Google Maps is running low on new, reachable results for your current niches/cities`;
-      scrapeJob.shortfall = true;
+      job.message = `only found ${gained} of the ${target} requested — Google Maps is running low on new, reachable results for your current niches/cities`;
+      job.shortfall = true;
     } else {
-      scrapeJob.message = `found 0 new leads — everything for your current niches/cities already appears to be in the database`;
-      scrapeJob.shortfall = true;
+      job.message = `found 0 new leads — everything for your current niches/cities already appears to be in the database`;
+      job.shortfall = true;
     }
   } catch (err) {
-    scrapeJob.status = 'error';
-    scrapeJob.message = err.message.slice(0, 200);
+    scrapeJobs.set(brokerId, { status: 'error', message: err.message.slice(0, 200), added: 0, shortfall: false });
   }
 }
 
 const ROUTES = {
-  'GET /api/batch': (req, res) => json(res, { leads: loadBatch(), counts: counts(), batchSize: config.ui?.batchSize ?? 40 }),
+  'GET /api/batch': (req, res) => json(res, { leads: loadBatch(req.broker.id), counts: counts(req.broker.id), batchSize: config.ui?.batchSize ?? 40 }),
 
-  'GET /api/scrape-status': (req, res) => json(res, { job: scrapeJob }),
+  'GET /api/scrape-status': (req, res) => json(res, { job: scrapeJobs.get(req.broker.id) ?? idleJob }),
 
   'POST /api/scrape': async (req, res) => {
-    if (scrapeJob.status === 'running') return json(res, { error: 'already running', job: scrapeJob }, 409);
+    const current = scrapeJobs.get(req.broker.id);
+    if (current?.status === 'running') return json(res, { error: 'already running', job: current }, 409);
     const { count } = await readBody(req);
     // No explicit count: top the board up to a full batch rather than a fixed
     // number, so the button's "how many" always matches what the board
@@ -188,9 +214,9 @@ const ROUTES = {
     // prompt uses.
     const target = Number(count) > 0
       ? Number(count)
-      : Math.max(1, (config.ui?.batchSize ?? 40) - countUnsentWorkable(db));
-    runScrapeJob(target); // not awaited -- the response returns immediately, the UI polls
-    json(res, { ok: true, job: scrapeJob });
+      : Math.max(1, (config.ui?.batchSize ?? 40) - countUnsentWorkable(db, req.broker.id));
+    runScrapeJob(req.broker, target); // not awaited -- the response returns immediately, the UI polls
+    json(res, { ok: true, job: scrapeJobs.get(req.broker.id) });
   },
 
   // First click marks it sent (status + timestamp, counted toward today's
@@ -200,7 +226,7 @@ const ROUTES = {
   // be blocked by a board that already believes it went out.
   'POST /api/opener': async (req, res) => {
     const { id } = await readBody(req);
-    const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
+    const lead = ownedLead(req, id);
     if (!lead) return json(res, { error: 'no such lead' }, 404);
     const resent = Boolean(lead.opener_sent_at);
     if (!resent) {
@@ -208,12 +234,12 @@ const ROUTES = {
       markContacted(lead);
     }
     logMessage(lead.id, 'out', renderOpener(lead));
-    json(res, { ok: true, counts: counts(), resent });
+    json(res, { ok: true, counts: counts(req.broker.id), resent });
   },
 
   'POST /api/pitch': async (req, res) => {
     const { id, contactName } = await readBody(req);
-    const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
+    const lead = ownedLead(req, id);
     if (!lead) return json(res, { error: 'no such lead' }, 404);
     const name = (contactName || '').trim() || lead.contact_name || null;
     const resent = Boolean(lead.pitch_sent_at);
@@ -222,12 +248,12 @@ const ROUTES = {
       markContacted(lead);
     } else if (name !== lead.contact_name) db.prepare('UPDATE leads SET contact_name = ? WHERE id = ?').run(name, id);
     logMessage(lead.id, 'out', renderPitch({ ...lead, contactName: name }));
-    json(res, { ok: true, counts: counts(), resent });
+    json(res, { ok: true, counts: counts(req.broker.id), resent });
   },
 
   'POST /api/name': async (req, res) => {
     const { id, contactName } = await readBody(req);
-    const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id);
+    const lead = ownedLead(req, id);
     if (!lead) return json(res, { error: 'no such lead' }, 404);
     const name = (contactName || '').trim() || null;
     db.prepare('UPDATE leads SET contact_name = ? WHERE id = ?').run(name, id);
@@ -236,9 +262,9 @@ const ROUTES = {
 
   'POST /api/status': async (req, res) => {
     const { id, status } = await readBody(req);
-    if (!db.prepare('SELECT 1 FROM leads WHERE id = ?').get(id)) return json(res, { error: 'no such lead' }, 404);
+    if (!ownedLead(req, id)) return json(res, { error: 'no such lead' }, 404);
     setStatus(id, status, {});
-    json(res, { ok: true, counts: counts() });
+    json(res, { ok: true, counts: counts(req.broker.id) });
   },
 
   // Paste-in leads: runs every line through the exact same chain filter,
@@ -247,15 +273,15 @@ const ROUTES = {
   'POST /api/import': async (req, res) => {
     const { text } = await readBody(req);
     if (!text || !text.trim()) return json(res, { error: 'nothing pasted' }, 400);
-    const r = importPastedLeads(text);
-    json(res, { ok: true, ...r, counts: counts() });
+    const r = importPastedLeads(text, req.broker.id);
+    json(res, { ok: true, ...r, counts: counts(req.broker.id) });
   },
 
   // Manual "said no / no reply" tag. Purely for your own tracking — it never
   // moves the lead, changes its status, or affects any pipeline logic.
   'POST /api/flag': async (req, res) => {
     const { id, value } = await readBody(req);
-    if (!db.prepare('SELECT 1 FROM leads WHERE id = ?').get(id)) return json(res, { error: 'no such lead' }, 404);
+    if (!ownedLead(req, id)) return json(res, { error: 'no such lead' }, 404);
     db.prepare('UPDATE leads SET no_response = ? WHERE id = ?').run(value ? 1 : 0, id);
     json(res, { ok: true });
   },
@@ -320,6 +346,25 @@ const ROUTES = {
     await disconnectBroker(req.broker.id);
     json(res, { ok: true });
   },
+
+  // What a broker's own "+ Get new leads" searches for. Comma-separated
+  // text in, comma-separated text out -- deliberately just two fields, no
+  // options panel. Never blank: falls back to config.json's shared
+  // defaults so the field always shows something real, not an empty box.
+  'GET /api/broker-settings': (req, res) => {
+    const broker = getBroker(req.broker.id);
+    json(res, {
+      niches: broker.niches || config.scrape.niches.join(', '),
+      cities: broker.cities || config.scrape.cities.join(', '),
+    });
+  },
+
+  'POST /api/broker-settings': async (req, res) => {
+    const { niches, cities } = await readBody(req);
+    db.prepare('UPDATE brokers SET niches = ?, cities = ? WHERE id = ?')
+      .run((niches || '').trim() || null, (cities || '').trim() || null, req.broker.id);
+    json(res, { ok: true });
+  },
 };
 
 async function serveStatic(req, res, pathname) {
@@ -371,7 +416,7 @@ export function startServer({ open = true } = {}) {
       // Per-lead vCard download: /vcf/12 -> one contact to add on the phone.
       const vcf = url.pathname.match(/^\/vcf\/(\d+)$/);
       if (vcf) {
-        const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(Number(vcf[1]));
+        const lead = ownedLead(req, Number(vcf[1]));
         if (!lead) { res.writeHead(404); return res.end('not found'); }
         db.prepare('UPDATE leads SET contact_exported_at = ? WHERE id = ?').run(now(), lead.id);
         const body = vcardFor(lead);
@@ -384,7 +429,7 @@ export function startServer({ open = true } = {}) {
 
       // Whole batch as one file -- import once, get all 40 contacts.
       if (url.pathname === '/vcf-batch') {
-        const ids = loadBatch().map((l) => l.id);
+        const ids = loadBatch(req.broker.id).map((l) => l.id);
         if (!ids.length) { res.writeHead(404); return res.end('empty batch'); }
         const rows = db.prepare(`SELECT * FROM leads WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
         const mark = db.prepare('UPDATE leads SET contact_exported_at = ? WHERE id = ?');

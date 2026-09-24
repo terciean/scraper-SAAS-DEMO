@@ -59,12 +59,19 @@ function saveQualification(lead, q) {
  * Enrichment is network-bound so it runs concurrently; qualification is an LLM
  * call per lead and runs serially after, to keep spend visible and ordered.
  */
-export async function runPipeline({ limit = 50, qualify = true, headless = true } = {}) {
+export async function runPipeline({ limit = 50, qualify = true, headless = true, brokerId } = {}) {
+  // brokerId omitted (cli.js's own usage) -> unscoped, unchanged from before.
+  // brokerId given (a broker's own on-demand scrape-then-enrich cycle) ->
+  // only touch that broker's own freshly-scraped rows, so it can't
+  // accidentally consume enrichment work queued by a different broker's
+  // concurrent scrape.
+  const scopeClause = brokerId != null ? 'AND assigned_broker_id = ?' : '';
+  const args = brokerId != null ? [brokerId, limit] : [limit];
   const leads = db.prepare(`
     SELECT * FROM leads
-    WHERE status = 'new' AND enriched_at IS NULL
+    WHERE status = 'new' AND enriched_at IS NULL ${scopeClause}
     ORDER BY id LIMIT ?
-  `).all(limit);
+  `).all(...args);
 
   if (!leads.length) {
     console.log('[pipeline] nothing to enrich. Run `node cli.js scrape` first.');
@@ -146,14 +153,16 @@ export async function runPipeline({ limit = 50, qualify = true, headless = true 
 }
 
 /** Qualify leads that are already enriched but not yet tiered. */
-export async function runQualifyOnly({ limit = 50 } = {}) {
+export async function runQualifyOnly({ limit = 50, brokerId } = {}) {
   if (!qualifierAvailable()) {
     console.log('[qualify] `claude` CLI not found on PATH.');
     return;
   }
+  const scopeClause = brokerId != null ? 'AND assigned_broker_id = ?' : '';
+  const args = brokerId != null ? [brokerId, limit] : [limit];
   const leads = db.prepare(`
-    SELECT * FROM leads WHERE enriched_at IS NOT NULL AND tier IS NULL ORDER BY id LIMIT ?
-  `).all(limit);
+    SELECT * FROM leads WHERE enriched_at IS NOT NULL AND tier IS NULL ${scopeClause} ORDER BY id LIMIT ?
+  `).all(...args);
 
   if (!leads.length) return console.log('[qualify] nothing waiting.');
   console.log(`[qualify] ${leads.length} lead(s) with ${config.models.qualify.provider}:${config.models.qualify.model}`);

@@ -38,7 +38,7 @@ export function parseLeadLine(line) {
  * scraper uses -- chain filter, exclusion list, phone dedupe -- so a pasted
  * lead can never bypass protections a scraped one goes through.
  */
-export function importPastedLeads(text) {
+export function importPastedLeads(text, brokerId = null) {
   const result = { added: 0, duplicates: 0, excluded: 0, invalid: 0, invalidLines: [], addedNames: [] };
 
   for (const raw of String(text ?? '').split('\n')) {
@@ -58,7 +58,7 @@ export function importPastedLeads(text) {
       continue;
     }
 
-    const { inserted } = upsertLead({ ...parsed, source: 'manual_paste' });
+    const { inserted } = upsertLead({ ...parsed, source: 'manual_paste', assigned_broker_id: brokerId });
     if (inserted) {
       result.added += 1;
       result.addedNames.push(parsed.brand_name);

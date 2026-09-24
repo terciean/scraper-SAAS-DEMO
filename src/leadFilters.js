@@ -52,7 +52,14 @@ export function countWorkable(db) {
   `).all().filter(isWorkable).length;
 }
 
-/** Unsent, messageable leads only -- awaiting-reply does not fill this quota. */
-export function countUnsentWorkable(db) {
-  return db.prepare(`SELECT * FROM leads WHERE status = 'new'`).all().filter(isWorkable).length;
+/**
+ * Unsent, messageable leads only -- awaiting-reply does not fill this quota.
+ * `brokerId` scopes to one broker's own pool; the default `null` means the
+ * operator's own legacy pool (`assigned_broker_id IS NULL`) -- what cli.js
+ * has always meant by "the leads", unchanged. SQLite's `IS ?` (not `= ?`)
+ * is what makes a bound NULL match NULL rows correctly.
+ */
+export function countUnsentWorkable(db, brokerId = null) {
+  return db.prepare(`SELECT * FROM leads WHERE status = 'new' AND assigned_broker_id IS ?`)
+    .all(brokerId).filter(isWorkable).length;
 }

@@ -35,6 +35,9 @@
 .wa-phone { color: var(--ink-faint); font-size: 11px; margin-left: 6px; font-variant-numeric: tabular-nums; }
 .wa-current { margin-bottom: 12px; }
 
+.settings-label { font-size: 11.5px; font-weight: 600; color: var(--ink-soft); margin: 4px 0 -2px; }
+.settings-label:first-child { margin-top: 0; }
+
 .qr-box { display: flex; align-items: center; justify-content: center; min-height: 220px; }
 .qr-box img { width: 220px; height: 220px; border-radius: 6px; }
 .qr-box .spinner { color: var(--ink-faint); font-size: 12.5px; }

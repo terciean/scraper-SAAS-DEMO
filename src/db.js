@@ -62,22 +62,34 @@ export function upsertLead(lead) {
   const existing = db.prepare('SELECT id FROM leads WHERE phone = ?').get(lead.phone);
   if (existing) return { inserted: false, id: existing.id };
 
-  const info = db.prepare(`
-    INSERT INTO leads (brand_name, phone, category, address, website, rating, reviews, source, source_query)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    lead.brand_name,
-    lead.phone,
-    lead.category ?? null,
-    lead.address ?? null,
-    lead.website ?? null,
-    lead.rating ?? null,
-    lead.reviews ?? null,
-    lead.source ?? 'google_maps',
-    lead.source_query ?? null,
-  );
+  try {
+    const info = db.prepare(`
+      INSERT INTO leads (brand_name, phone, category, address, website, rating, reviews, source, source_query, assigned_broker_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      lead.brand_name,
+      lead.phone,
+      lead.category ?? null,
+      lead.address ?? null,
+      lead.website ?? null,
+      lead.rating ?? null,
+      lead.reviews ?? null,
+      lead.source ?? 'google_maps',
+      lead.source_query ?? null,
+      lead.assigned_broker_id ?? null,
+    );
 
-  return { inserted: true, id: Number(info.lastInsertRowid) };
+    return { inserted: true, id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    // Two brokers' scrapes can now genuinely race on the same real business
+    // between this function's SELECT above and its INSERT -- the `phone`
+    // UNIQUE constraint is what actually decides who wins, so a constraint
+    // failure here means someone else's insert landed first, not a real
+    // error. Treat it exactly like the existing "already exists" branch.
+    if (!/UNIQUE constraint failed/.test(err.message)) throw err;
+    const winner = db.prepare('SELECT id FROM leads WHERE phone = ?').get(lead.phone);
+    return { inserted: false, id: winner.id };
+  }
 }
 
 export function logMessage(leadId, direction, body) {
