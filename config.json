@@ -1,8 +1,8 @@
 {
   "defaultCountry": "ZA",
   "models": {
-    "classifyReply": { "provider": "claude", "model": "claude-haiku-4-5-20251001" },
-    "qualify": { "provider": "claude", "model": "claude-haiku-4-5-20251001" }
+    "classifyReply": { "provider": "openai", "model": "gpt-4o-mini" },
+    "qualify": { "provider": "openai", "model": "gpt-4o-mini" }
   },
   "scrape": {
     "dailyTarget": 120,
