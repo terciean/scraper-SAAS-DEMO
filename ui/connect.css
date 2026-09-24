@@ -60,3 +60,19 @@
 }
 .auth-switch { margin: 14px 0 0; font-size: 12px; color: var(--ink-soft); text-align: center; }
 .auth-switch a { color: var(--accent); }
+
+/* ---------- admin ---------- */
+.admin-main { padding: 14px 16px 60px; max-width: 1080px; margin: 0 auto; }
+.admin-main .panel { overflow-x: auto; }
+.admin-main table { min-width: 720px; }
+
+.sub-status { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.sub-status.trialing { background: var(--amber-bg); color: var(--amber); }
+.sub-status.active   { background: var(--green-bg); color: var(--green); }
+.sub-status.past_due { background: var(--amber-bg); color: var(--amber); }
+.sub-status.canceled { background: #fde8e8; color: #a52121; }
+@media (prefers-color-scheme: dark) {
+  .sub-status.canceled { background: #3a1616; color: #f08a8a; }
+}
+.admin-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.admin-actions .btn { font-size: 11px; padding: 4px 8px; }

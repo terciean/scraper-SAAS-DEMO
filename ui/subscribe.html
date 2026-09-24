@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subscription Required</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="connect.css">
+</head>
+<body>
+  <main class="auth-main">
+    <section class="panel auth-panel">
+      <h2>Subscription needed</h2>
+      <p class="modal-hint">
+        Your trial has ended (or your subscription isn't active), so the board
+        is on hold for now. Get in touch to arrange a plan and it'll be
+        switched back on right away.
+      </p>
+      <div class="modal-actions" style="justify-content: center; margin-top: 18px;">
+        <button class="btn ghost" id="logout">Log out</button>
+      </div>
+    </section>
+  </main>
+  <script>
+    document.getElementById('logout').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+  </script>
+</body>
+</html>

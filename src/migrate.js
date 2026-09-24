@@ -107,15 +107,27 @@ db.exec(`
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at  TEXT NOT NULL
   );
+
+  -- Admin sessions -- deliberately separate from the broker sessions table
+  -- above, no broker_id at all: there is exactly one admin identity (a
+  -- shared password), not a row per admin, so a broker session can never be
+  -- mistaken for (or escalated into) an admin one.
+  CREATE TABLE IF NOT EXISTS admin_sessions (
+    token       TEXT PRIMARY KEY,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at  TEXT NOT NULL
+  );
 `);
 
 // brokers already existed on disk before login/settings were added, so its
 // own new columns need the same additive ALTER-TABLE treatment as `leads`.
 const brokerColumns = new Set(db.prepare('PRAGMA table_info(brokers)').all().map((c) => c.name));
 const BROKER_COLUMNS = {
-  password_hash: 'TEXT',
-  niches:        'TEXT', // comma-joined; NULL/empty = fall back to config.json's scrape.niches
-  cities:        'TEXT', // comma-joined; NULL/empty = fall back to config.json's scrape.cities
+  password_hash:       'TEXT',
+  niches:              'TEXT', // comma-joined; NULL/empty = fall back to config.json's scrape.niches
+  cities:              'TEXT', // comma-joined; NULL/empty = fall back to config.json's scrape.cities
+  subscription_status: "TEXT NOT NULL DEFAULT 'trialing'", // trialing | active | past_due | canceled
+  trial_ends_at:       'TEXT',
 };
 for (const [name, type] of Object.entries(BROKER_COLUMNS)) {
   if (brokerColumns.has(name)) continue;
@@ -127,6 +139,13 @@ for (const [name, type] of Object.entries(BROKER_COLUMNS)) {
 // (there shouldn't be any going forward, but don't break on old rows) don't
 // collide, only real ones need to be unique.
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_brokers_email ON brokers(email) WHERE email IS NOT NULL');
+
+// Backfill: any broker with no trial_ends_at yet (every row that existed
+// before this migration, e.g. the Gene/Jaden demo account) gets a fresh
+// 14-day trial starting now, so this ships without silently locking out
+// whoever was already using it. Idempotent -- only ever touches NULL rows,
+// so it's a no-op on every run after the first.
+db.exec("UPDATE brokers SET trial_ends_at = datetime('now', '+14 days') WHERE trial_ends_at IS NULL");
 
 if (added) console.log(`[migrate] added ${added} column(s)`);
 export const migrated = true;

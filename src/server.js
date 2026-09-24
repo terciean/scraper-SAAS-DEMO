@@ -13,12 +13,14 @@ import { runPipeline } from './pipeline.js';
 import { qualifierAvailable } from './qualify.js';
 import { importPastedLeads } from './importLeads.js';
 import { markContacted } from './exclusions.js';
-import { createBroker, getBroker, getBrokerByEmail } from './brokers.js';
+import { createBroker, getBroker, getBrokerByEmail, hasActiveSubscription } from './brokers.js';
 import { getSessionState, connectBroker, disconnectBroker } from './wa/sessionManager.js';
 import QRCode from 'qrcode';
 import {
   verifyPassword, createSession, getSessionBroker, destroySession,
   sessionCookieHeader, sessionToken,
+  verifyAdminPassword, createAdminSession, getAdminSession, destroyAdminSession,
+  adminCookieHeader, adminSessionToken,
 } from './auth.js';
 
 const UI = join(ROOT, 'ui');
@@ -365,6 +367,65 @@ const ROUTES = {
       .run((niches || '').trim() || null, (cities || '').trim() || null, req.broker.id);
     json(res, { ok: true });
   },
+
+  // ---- admin: a fully separate credential from broker accounts (one
+  // shared password, no per-admin identity) -- see src/auth.js. ----
+  'POST /api/admin/login': async (req, res) => {
+    const { password } = await readBody(req);
+    if (!verifyAdminPassword(password || '')) return json(res, { error: 'incorrect password' }, 401);
+    const token = createAdminSession();
+    res.setHeader('Set-Cookie', adminCookieHeader(token));
+    json(res, { ok: true });
+  },
+
+  'POST /api/admin/logout': (req, res) => {
+    destroyAdminSession(adminSessionToken(req));
+    res.setHeader('Set-Cookie', adminCookieHeader(null, { clear: true }));
+    json(res, { ok: true });
+  },
+
+  // One row per broker with everything the panel needs -- lead counts by
+  // outcome, WhatsApp status, subscription state -- in one query rather
+  // than N+1 round trips per broker.
+  'GET /api/admin/brokers': (req, res) => {
+    const brokers = db.prepare(`
+      SELECT
+        b.*,
+        COUNT(l.id) AS lead_count,
+        COUNT(CASE WHEN l.opener_sent_at IS NOT NULL THEN 1 END) AS contacted_count,
+        COUNT(CASE WHEN l.status = 'replied' THEN 1 END) AS replied_count
+      FROM brokers b
+      LEFT JOIN leads l ON l.assigned_broker_id = b.id
+      GROUP BY b.id
+      ORDER BY b.id
+    `).all();
+    json(res, {
+      brokers: brokers.map((b) => ({
+        id: b.id, name: b.name, email: b.email, createdAt: b.created_at,
+        waStatus: b.wa_status, waPhone: b.wa_phone,
+        subscriptionStatus: b.subscription_status, trialEndsAt: b.trial_ends_at,
+        active: hasActiveSubscription(b),
+        leadCount: b.lead_count, contactedCount: b.contacted_count, repliedCount: b.replied_count,
+      })),
+    });
+  },
+
+  'POST /api/admin/subscription': async (req, res) => {
+    const { brokerId, status } = await readBody(req);
+    if (!['trialing', 'active', 'past_due', 'canceled'].includes(status)) {
+      return json(res, { error: 'invalid status' }, 400);
+    }
+    if (!getBroker(brokerId)) return json(res, { error: 'no such broker' }, 404);
+    // A manual "Reset trial" also needs a fresh trial_ends_at, not just the
+    // status flip, or it would immediately re-evaluate as expired.
+    if (status === 'trialing') {
+      db.prepare("UPDATE brokers SET subscription_status = ?, trial_ends_at = datetime('now', '+14 days') WHERE id = ?")
+        .run(status, brokerId);
+    } else {
+      db.prepare('UPDATE brokers SET subscription_status = ? WHERE id = ?').run(status, brokerId);
+    }
+    json(res, { ok: true });
+  },
 };
 
 async function serveStatic(req, res, pathname) {
@@ -383,7 +444,8 @@ export function startServer({ open = true } = {}) {
 
   // /api/auth/me deliberately excluded from PUBLIC_AUTH_ROUTES below: it
   // reports on the current session, so unlike signup/login/logout it needs
-  // req.broker set by the gate, not skipped by it.
+  // req.broker set by the gate, not skipped by it. Same reasoning keeps
+  // /api/admin/login (not /api/admin/logout) out of the admin branch below.
   const PUBLIC_AUTH_ROUTES = new Set(['/api/auth/signup', '/api/auth/login', '/api/auth/logout']);
 
   const server = createServer(async (req, res) => {
@@ -391,14 +453,25 @@ export function startServer({ open = true } = {}) {
       const url = new URL(req.url, `http://localhost:${port}`);
       const { pathname } = url;
 
-      // Global auth gate. Public without a session: the login/signup pages
-      // themselves, the three routes above, and any stylesheet/script (so
+      // Admin is a fully separate credential from broker sessions -- checked
+      // and dispatched before the broker gate even runs, on its own cookie
+      // (asid, not sid). /admin.html itself is public (it's just the login
+      // form); every /api/admin/* route except login needs a valid admin
+      // session, never a broker one.
+      if (pathname.startsWith('/api/admin/') && pathname !== '/api/admin/login') {
+        if (!getAdminSession(adminSessionToken(req))) return json(res, { error: 'unauthorized' }, 401);
+        req.admin = true;
+      }
+
+      // Global auth gate. Public without a session: the login/signup/admin
+      // pages themselves, the routes above, and any stylesheet/script (so
       // those pages can load their own styling before you're logged in at
       // all). Everything else -- the board, /connect.html, every other
       // /api/* route, the per-lead vCard routes below -- requires a session.
       const isPublic = /\.(css|js)$/.test(pathname)
-        || pathname === '/login.html' || pathname === '/signup.html'
-        || PUBLIC_AUTH_ROUTES.has(pathname);
+        || pathname === '/login.html' || pathname === '/signup.html' || pathname === '/admin.html'
+        || PUBLIC_AUTH_ROUTES.has(pathname) || pathname === '/api/admin/login'
+        || pathname.startsWith('/api/admin/');
 
       if (!isPublic) {
         const broker = getSessionBroker(sessionToken(req));
@@ -408,6 +481,17 @@ export function startServer({ open = true } = {}) {
           return res.end();
         }
         req.broker = broker;
+
+        // A broker with no active subscription (trial expired, past due,
+        // canceled) can still reach /subscribe.html -- nothing else. (Logout
+        // needs no exemption here: it's already fully public above, so it
+        // never reaches this check in the first place.) Checked once, here,
+        // rather than in every route.
+        if (pathname !== '/subscribe.html' && !hasActiveSubscription(broker)) {
+          if (pathname.startsWith('/api/')) return json(res, { error: 'subscription required' }, 402);
+          res.writeHead(302, { Location: '/subscribe.html' });
+          return res.end();
+        }
       }
 
       const key = `${req.method} ${pathname}`;

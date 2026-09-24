@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="connect.css">
+</head>
+<body>
+  <header class="bar" id="adminBar" hidden>
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Admin</h1>
+      <span class="sub">all brokers</span>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="refresh">↻ Refresh</button>
+      <button class="btn ghost" id="logout">Log out</button>
+    </div>
+  </header>
+
+  <main class="auth-main" id="loginView">
+    <section class="panel auth-panel">
+      <h2>Admin login</h2>
+      <div class="field-row stacked">
+        <input id="password" type="password" placeholder="Admin password" autocomplete="current-password">
+        <button class="btn primary" id="submit">Log in</button>
+      </div>
+      <p class="auth-error" id="error" hidden></p>
+    </section>
+  </main>
+
+  <main class="admin-main" id="brokersView" hidden>
+    <section class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>Broker</th>
+            <th>WhatsApp</th>
+            <th>Leads</th>
+            <th>Subscription</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="empty" id="empty" hidden>No brokers yet.</p>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+  <script src="admin.js"></script>
+</body>
+</html>

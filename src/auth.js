@@ -73,3 +73,49 @@ export function sessionCookieHeader(token, { clear = false } = {}) {
 export function sessionToken(req) {
   return parseCookies(req)[COOKIE_NAME];
 }
+
+// ---------- admin ----------
+// A fully separate credential from broker sessions above -- one shared
+// password (ADMIN_PASSWORD in .env), not a per-admin account, so an admin
+// session can never be confused with or escalated from a broker one.
+const ADMIN_SESSION_DAYS = 7;
+const ADMIN_COOKIE_NAME = 'asid';
+
+export function verifyAdminPassword(password) {
+  const expected = process.env.ADMIN_PASSWORD;
+  if (!expected || !password) return false;
+  const a = Buffer.from(password);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+export function createAdminSession() {
+  const token = randomBytes(32).toString('hex');
+  db.prepare(`
+    INSERT INTO admin_sessions (token, expires_at)
+    VALUES (?, datetime('now', '+${ADMIN_SESSION_DAYS} days'))
+  `).run(token);
+  return token;
+}
+
+export function getAdminSession(token) {
+  if (!token) return false;
+  const row = db.prepare('SELECT 1 FROM admin_sessions WHERE token = ? AND expires_at > datetime(\'now\')').get(token);
+  if (row) return true;
+  db.prepare('DELETE FROM admin_sessions WHERE token = ?').run(token);
+  return false;
+}
+
+export function destroyAdminSession(token) {
+  if (token) db.prepare('DELETE FROM admin_sessions WHERE token = ?').run(token);
+}
+
+export function adminCookieHeader(token, { clear = false } = {}) {
+  const base = `${ADMIN_COOKIE_NAME}=${clear ? '' : token}; HttpOnly; SameSite=Lax; Path=/`;
+  return clear ? `${base}; Max-Age=0` : `${base}; Max-Age=${ADMIN_SESSION_DAYS * 86400}`;
+}
+
+export function adminSessionToken(req) {
+  return parseCookies(req)[ADMIN_COOKIE_NAME];
+}
