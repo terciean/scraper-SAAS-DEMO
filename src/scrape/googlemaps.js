@@ -100,6 +100,16 @@ export function buildQueries({ niches, cities, queries }) {
   return out;
 }
 
+// Recovers the niche half of a "<niche> in <city>" query -- every query
+// buildQueries() produces has this shape, so a lead's niche is read back
+// from the query that actually found it rather than threading a niche
+// field through buildQueries'/scrape()'s signatures. A custom query with no
+// " in " (a manual --query override) yields null, same as a pasted lead --
+// gracefully outside query-weighting, not an error.
+export function nicheFromQuery(query) {
+  return query?.includes(' in ') ? query.split(' in ')[0] : null;
+}
+
 export async function scrape({ queries, target, maxPerQuery, headless, brokerId } = {}) {
   const cfg = config.scrape;
   queries ??= buildQueries(cfg);
@@ -156,7 +166,7 @@ export async function scrape({ queries, target, maxPerQuery, headless, brokerId 
           continue;
         }
 
-        const { inserted } = upsertLead({ ...place, phone, source_query: query, assigned_broker_id: brokerId ?? null });
+        const { inserted } = upsertLead({ ...place, phone, source_query: query, niche: nicheFromQuery(query), assigned_broker_id: brokerId ?? null });
         if (inserted) {
           stats.added += 1;
           console.log(`  + ${place.brand_name} — ${phone}  (${stats.added}/${target})`);

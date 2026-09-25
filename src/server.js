@@ -8,7 +8,7 @@ import { db, logMessage, setStatus } from './db.js';
 import { renderOpener, renderPitch, cleanBrandName } from './templates.js';
 import { bestPhone, phoneType, whatsAppLikelihood } from './phone.js';
 import { isWorkable, assembleBoard, countUnsentWorkable } from './leadFilters.js';
-import { scrape, buildQueries } from './scrape/googlemaps.js';
+import { scrape, buildQueries, nicheFromQuery } from './scrape/googlemaps.js';
 import { runPipeline } from './pipeline.js';
 import { qualifierAvailable } from './qualify.js';
 import { importPastedLeads } from './importLeads.js';
@@ -115,6 +115,7 @@ function loadBatch(brokerId) {
     pitchSent: Boolean(l.pitch_sent_at),
     contactSaved: Boolean(l.contact_exported_at),
     noResponse: Boolean(l.no_response),
+    markedGood: Boolean(l.marked_good),
     opener: renderOpener(l),
     pitch: renderPitch({ ...l, contactName: l.contact_name }),
   }));
@@ -159,11 +160,48 @@ const idleJob = { status: 'idle', message: '', added: 0, shortfall: false };
 // A broker's own niches/cities, comma-parsed -- falling back to config.json's
 // shared defaults when they haven't set any, so a broker who never touches
 // settings gets identical behavior to the single-tenant tool.
+//
+// If they've marked any leads "good" (a manual, per-lead call -- see
+// POST /api/mark-good), the query list leans toward whichever niche(s)
+// those leads came from: 3 in 5 (60%) of the list is drawn from queries in
+// a proven niche, the rest stays the full configured mix, so a proven
+// niche gets more attention without the search ever narrowing to just it.
+// This biases query ORDER, not a guaranteed realized split -- scrape()
+// stops once it hits its target, so how much of the weighted portion
+// actually runs depends on where that happens, same caveat the existing
+// niche x city interleaving already has. A broker with nothing marked good
+// yet gets exactly today's behavior, unchanged.
+const WEIGHTED_SHARE = 3; // out of 5 -- keep in sync with the comment above if retuned
+const SHARE_TOTAL = 5;
+
+function goodNichesForBroker(brokerId) {
+  return db.prepare(`
+    SELECT niche, COUNT(*) n FROM leads
+    WHERE assigned_broker_id = ? AND marked_good = 1 AND niche IS NOT NULL
+    GROUP BY niche
+  `).all(brokerId);
+}
+
 function queriesForBroker(broker) {
   const split = (s) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : null);
   const niches = split(broker.niches) ?? config.scrape.niches;
   const cities = split(broker.cities) ?? config.scrape.cities;
-  return buildQueries({ niches, cities, queries: null });
+  const baseline = buildQueries({ niches, cities, queries: null });
+
+  const goodNiches = goodNichesForBroker(broker.id);
+  if (!goodNiches.length) return { queries: baseline, weightedNiches: [] };
+
+  const provenSet = new Set(goodNiches.map((g) => g.niche));
+  const weighted = baseline.filter((q) => provenSet.has(nicheFromQuery(q)));
+  if (!weighted.length) return { queries: baseline, weightedNiches: [] };
+
+  const queries = [];
+  let wi = 0, bi = 0;
+  for (let i = 0; i < baseline.length; i += 1) {
+    if (i % SHARE_TOTAL < WEIGHTED_SHARE) { queries.push(weighted[wi % weighted.length]); wi += 1; }
+    else { queries.push(baseline[bi % baseline.length]); bi += 1; }
+  }
+  return { queries, weightedNiches: [...provenSet] };
 }
 
 // "Shortfall" is tracked separately from "error": the scrape ran fine, Chrome
@@ -174,9 +212,11 @@ function queriesForBroker(broker) {
 async function runScrapeJob(broker, target) {
   const brokerId = broker.id;
   const before = countUnsentWorkable(db, brokerId);
-  scrapeJobs.set(brokerId, { status: 'running', message: `opening Chrome, scraping for ${target} new lead(s)…`, added: 0, shortfall: false });
+  const { queries, weightedNiches } = queriesForBroker(broker);
+  const weightNote = weightedNiches.length ? ` (leaning toward: ${weightedNiches.join(', ')})` : '';
+  scrapeJobs.set(brokerId, { status: 'running', message: `opening Chrome, scraping for ${target} new lead(s)…${weightNote}`, added: 0, shortfall: false });
   try {
-    const s = await scrape({ target, queries: queriesForBroker(broker), brokerId });
+    const s = await scrape({ target, queries, brokerId });
     const job = scrapeJobs.get(brokerId);
     job.added = s.added;
     if (s.added > 0) {
@@ -298,6 +338,15 @@ const ROUTES = {
     const { id, value } = await readBody(req);
     if (!ownedLead(req, id)) return json(res, { error: 'no such lead' }, 404);
     db.prepare('UPDATE leads SET no_response = ? WHERE id = ?').run(value ? 1 : 0, id);
+    json(res, { ok: true });
+  },
+
+  // Manual "this was a good lead" tag -- feeds queriesForBroker's niche
+  // weighting above, otherwise exactly as inert as /api/flag.
+  'POST /api/mark-good': async (req, res) => {
+    const { id, value } = await readBody(req);
+    if (!ownedLead(req, id)) return json(res, { error: 'no such lead' }, 404);
+    db.prepare('UPDATE leads SET marked_good = ? WHERE id = ?').run(value ? 1 : 0, id);
     json(res, { ok: true });
   },
 

@@ -51,6 +51,12 @@ const COLUMNS = {
 
   // manual tracking — your own call, doesn't drive any pipeline logic
   no_response:       'INTEGER', // 1 = you've marked this as a no/no-reply, toggle any time
+  marked_good:       'INTEGER', // 1 = you've marked this as a good lead -- feeds query weighting, see niche below
+
+  // which niche (the scrape query's own niche half, before " in <city>")
+  // found this lead -- NULL for pasted leads or a custom query with no
+  // recoverable niche. What marked_good's query-weighting groups by.
+  niche:             'TEXT',
 
   // multi-tenant: which broker this lead belongs to. NULL = the operator's
   // own legacy pool (everything scraped before brokers existed, and

@@ -73,7 +73,7 @@ function render() {
 
   visible.forEach((l, i) => {
     const tr = document.createElement('tr');
-    tr.className = [l.pitchSent ? 'complete' : '', l.reach === 'no' ? 'unreachable' : '', l.noResponse ? 'flagged' : ''].filter(Boolean).join(' ');
+    tr.className = [l.pitchSent ? 'complete' : '', l.reach === 'no' ? 'unreachable' : '', l.noResponse ? 'flagged' : '', l.markedGood ? 'good' : ''].filter(Boolean).join(' ');
     tr.dataset.id = l.id;
 
     const site = l.website
@@ -110,6 +110,9 @@ function render() {
         </button>
       </td>
       <td class="c-state">${stateCell(l)}</td>
+      <td class="c-flag">
+        <input type="checkbox" class="good-lead" data-good title="Good conversation — lean future scrapes toward this niche" ${l.markedGood ? 'checked' : ''}>
+      </td>
       <td class="c-flag">
         <input type="checkbox" class="no-response" data-flag title="Mark as no / no reply" ${l.noResponse ? 'checked' : ''}>
       </td>`;
@@ -187,15 +190,29 @@ rowsEl.addEventListener('input', (e) => {
 // Checkbox toggles are instant, no debounce — it's just a manual tag, not
 // something that needs to survive a half-typed state.
 rowsEl.addEventListener('change', async (e) => {
-  const box = e.target.closest('input[data-flag]');
-  if (!box) return;
-  const tr = box.closest('tr');
-  const id = Number(tr.dataset.id);
-  const lead = leads.find((l) => l.id === id);
-  if (!lead) return;
-  lead.noResponse = box.checked;
-  tr.classList.toggle('flagged', box.checked);
-  await api('/api/flag', { id, value: box.checked });
+  const flagBox = e.target.closest('input[data-flag]');
+  if (flagBox) {
+    const tr = flagBox.closest('tr');
+    const id = Number(tr.dataset.id);
+    const lead = leads.find((l) => l.id === id);
+    if (!lead) return;
+    lead.noResponse = flagBox.checked;
+    tr.classList.toggle('flagged', flagBox.checked);
+    await api('/api/flag', { id, value: flagBox.checked });
+    return;
+  }
+
+  const goodBox = e.target.closest('input[data-good]');
+  if (goodBox) {
+    const tr = goodBox.closest('tr');
+    const id = Number(tr.dataset.id);
+    const lead = leads.find((l) => l.id === id);
+    if (!lead) return;
+    lead.markedGood = goodBox.checked;
+    tr.classList.toggle('good', goodBox.checked);
+    await api('/api/mark-good', { id, value: goodBox.checked });
+    toast(goodBox.checked ? 'Marked good — future scrapes will lean toward this niche' : 'Unmarked');
+  }
 });
 
 document.getElementById('refresh').addEventListener('click', () => load({ announceNew: true }));

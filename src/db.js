@@ -64,8 +64,8 @@ export function upsertLead(lead) {
 
   try {
     const info = db.prepare(`
-      INSERT INTO leads (brand_name, phone, category, address, website, rating, reviews, source, source_query, assigned_broker_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO leads (brand_name, phone, category, address, website, rating, reviews, source, source_query, niche, assigned_broker_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       lead.brand_name,
       lead.phone,
@@ -76,6 +76,7 @@ export function upsertLead(lead) {
       lead.reviews ?? null,
       lead.source ?? 'google_maps',
       lead.source_query ?? null,
+      lead.niche ?? null,
       lead.assigned_broker_id ?? null,
     );
 
