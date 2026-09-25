@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { callModel, modelAvailable } from './llm.js';
+import { getBroker, underQualifyCap, logQualification } from './brokers.js';
 
 const QUALIFICATION_SCHEMA = {
   type: 'object',
@@ -107,13 +108,29 @@ export function qualifierAvailable() {
   return modelAvailable(config.models?.qualify);
 }
 
-/** Qualify one enriched lead against the brief. Returns null when unavailable. */
+/**
+ * Qualify one enriched lead against the brief. Returns null when unavailable
+ * -- either no qualifier configured, or (for a broker's own lead) that
+ * broker has hit their monthly qualification cap. Either way the lead just
+ * stays unqualified; pipeline.js already treats a null result as "nothing
+ * to save", not an error.
+ */
 export async function qualifyLead(lead, web) {
   if (!qualifierAvailable()) return null;
 
-  return callModel(config.models?.qualify, {
+  // Only a broker-owned lead is capped -- the operator's own legacy pool
+  // (assigned_broker_id IS NULL) is unscoped everywhere else, same here.
+  if (lead.assigned_broker_id != null) {
+    const broker = getBroker(lead.assigned_broker_id);
+    if (!broker || !underQualifyCap(broker)) return null;
+  }
+
+  const result = await callModel(config.models?.qualify, {
     system: SYSTEM,
     prompt: evidence(lead, web),
     jsonSchema: QUALIFICATION_SCHEMA,
   });
+
+  if (lead.assigned_broker_id != null) logQualification(lead.assigned_broker_id);
+  return result;
 }

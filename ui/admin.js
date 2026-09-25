@@ -44,10 +44,16 @@ function render(brokers) {
       ? `<div class="sub">until ${new Date(`${b.trialEndsAt.replace(' ', 'T')}Z`).toLocaleDateString()}</div>`
       : '';
 
+    const nearCap = (used, cap) => used >= cap ? 'sub-status canceled' : used >= cap * 0.8 ? 'sub-status past_due' : 'sub';
+
     tr.innerHTML = `
       <td>${b.name}<div class="sub">${b.email}</div></td>
       <td><span class="wa-status ${b.waStatus}">${b.waStatus}</span>${b.waPhone ? `<span class="wa-phone">+${b.waPhone}</span>` : ''}</td>
       <td>${b.leadCount} total<div class="sub">${b.contactedCount} contacted · ${b.repliedCount} replied</div></td>
+      <td>
+        <div class="${nearCap(b.whatsappSent, b.whatsappCap)}">${b.whatsappSent}/${b.whatsappCap} sends</div>
+        <div class="${nearCap(b.qualified, b.qualifyCap)}">${b.qualified}/${b.qualifyCap} qualified</div>
+      </td>
       <td><span class="sub-status ${b.subscriptionStatus}">${SUB_LABEL[b.subscriptionStatus] ?? b.subscriptionStatus}</span>${trialNote}</td>
       <td>
         <div class="admin-actions">

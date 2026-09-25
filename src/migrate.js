@@ -117,6 +117,16 @@ db.exec(`
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at  TEXT NOT NULL
   );
+
+  -- One row per successful qualifyLead() call, per broker -- mirrors how
+  -- the messages table already logs every WhatsApp send. This is what the
+  -- per-broker monthly qualification cap counts against.
+  CREATE TABLE IF NOT EXISTS qualification_log (
+    id          INTEGER PRIMARY KEY,
+    broker_id   INTEGER NOT NULL REFERENCES brokers(id),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_qual_log_broker ON qualification_log(broker_id, created_at);
 `);
 
 // brokers already existed on disk before login/settings were added, so its
@@ -128,6 +138,8 @@ const BROKER_COLUMNS = {
   cities:              'TEXT', // comma-joined; NULL/empty = fall back to config.json's scrape.cities
   subscription_status: "TEXT NOT NULL DEFAULT 'trialing'", // trialing | active | past_due | canceled
   trial_ends_at:       'TEXT',
+  whatsapp_cap:        'INTEGER', // NULL = use the default plan cap
+  qualify_cap:         'INTEGER', // NULL = use the default plan cap
 };
 for (const [name, type] of Object.entries(BROKER_COLUMNS)) {
   if (brokerColumns.has(name)) continue;

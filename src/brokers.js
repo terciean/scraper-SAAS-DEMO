@@ -49,6 +49,40 @@ export function hasActiveSubscription(broker) {
   return false;
 }
 
+// Default monthly plan limits -- overridable per broker via the nullable
+// whatsapp_cap/qualify_cap columns, but there is one plan today, so these
+// constants are the only place that number lives.
+export const DEFAULT_WHATSAPP_CAP = 500;
+export const DEFAULT_QUALIFY_CAP = 1000;
+
+export function whatsappSendsThisMonth(brokerId) {
+  return db.prepare(`
+    SELECT COUNT(*) n FROM messages m
+    JOIN leads l ON l.id = m.lead_id
+    WHERE l.assigned_broker_id = ? AND m.direction = 'out'
+      AND strftime('%Y-%m', m.ts) = strftime('%Y-%m', 'now')
+  `).get(brokerId).n;
+}
+
+export function qualificationsThisMonth(brokerId) {
+  return db.prepare(`
+    SELECT COUNT(*) n FROM qualification_log
+    WHERE broker_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
+  `).get(brokerId).n;
+}
+
+export function underWhatsappCap(broker) {
+  return whatsappSendsThisMonth(broker.id) < (broker.whatsapp_cap ?? DEFAULT_WHATSAPP_CAP);
+}
+
+export function underQualifyCap(broker) {
+  return qualificationsThisMonth(broker.id) < (broker.qualify_cap ?? DEFAULT_QUALIFY_CAP);
+}
+
+export function logQualification(brokerId) {
+  db.prepare('INSERT INTO qualification_log (broker_id) VALUES (?)').run(brokerId);
+}
+
 /** Persist the last-known WhatsApp outcome for a broker -- called by the
  * session manager whenever the live (in-memory) connection state changes. */
 export function updateWaState(id, { status, phone = undefined, error = undefined }) {

@@ -13,7 +13,11 @@ import { runPipeline } from './pipeline.js';
 import { qualifierAvailable } from './qualify.js';
 import { importPastedLeads } from './importLeads.js';
 import { markContacted } from './exclusions.js';
-import { createBroker, getBroker, getBrokerByEmail, hasActiveSubscription } from './brokers.js';
+import {
+  createBroker, getBroker, getBrokerByEmail, hasActiveSubscription,
+  underWhatsappCap, whatsappSendsThisMonth, qualificationsThisMonth,
+  DEFAULT_WHATSAPP_CAP, DEFAULT_QUALIFY_CAP,
+} from './brokers.js';
 import { getSessionState, connectBroker, disconnectBroker } from './wa/sessionManager.js';
 import QRCode from 'qrcode';
 import {
@@ -231,6 +235,12 @@ const ROUTES = {
     const lead = ownedLead(req, id);
     if (!lead) return json(res, { error: 'no such lead' }, 404);
     const resent = Boolean(lead.opener_sent_at);
+    // Cap only gates a *first* send, same as every other first-send-only
+    // side effect here (status change, markContacted) -- a resend never
+    // trips it, matching the existing "resends are always allowed" contract.
+    if (!resent && !underWhatsappCap(req.broker)) {
+      return json(res, { error: 'monthly message limit reached' }, 402);
+    }
     if (!resent) {
       setStatus(lead.id, 'opener_sent', { opener_sent_at: now() });
       markContacted(lead);
@@ -245,6 +255,9 @@ const ROUTES = {
     if (!lead) return json(res, { error: 'no such lead' }, 404);
     const name = (contactName || '').trim() || lead.contact_name || null;
     const resent = Boolean(lead.pitch_sent_at);
+    if (!resent && !underWhatsappCap(req.broker)) {
+      return json(res, { error: 'monthly message limit reached' }, 402);
+    }
     if (!resent) {
       setStatus(lead.id, 'pitch_sent', { pitch_sent_at: now(), contact_name: name });
       markContacted(lead);
@@ -406,6 +419,8 @@ const ROUTES = {
         subscriptionStatus: b.subscription_status, trialEndsAt: b.trial_ends_at,
         active: hasActiveSubscription(b),
         leadCount: b.lead_count, contactedCount: b.contacted_count, repliedCount: b.replied_count,
+        whatsappSent: whatsappSendsThisMonth(b.id), whatsappCap: b.whatsapp_cap ?? DEFAULT_WHATSAPP_CAP,
+        qualified: qualificationsThisMonth(b.id), qualifyCap: b.qualify_cap ?? DEFAULT_QUALIFY_CAP,
       })),
     });
   },
