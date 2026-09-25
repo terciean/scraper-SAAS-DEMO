@@ -140,6 +140,7 @@ const BROKER_COLUMNS = {
   trial_ends_at:       'TEXT',
   whatsapp_cap:        'INTEGER', // NULL = use the default plan cap
   qualify_cap:         'INTEGER', // NULL = use the default plan cap
+  dcsagoli_key:        'TEXT', // this broker's dcsagoli integration key; NULL = don't push their leads there
 };
 for (const [name, type] of Object.entries(BROKER_COLUMNS)) {
   if (brokerColumns.has(name)) continue;

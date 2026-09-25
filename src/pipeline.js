@@ -5,6 +5,8 @@ import { db } from './db.js';
 import { enrichWebsite } from './enrich/website.js';
 import { qualifyLead, qualifierAvailable } from './qualify.js';
 import { normalisePhone, phoneType, whatsAppLikelihood } from './phone.js';
+import { getBroker } from './brokers.js';
+import { pushLead } from './dcsagoli.js';
 
 const now = () => new Date().toISOString();
 
@@ -145,6 +147,13 @@ export async function runPipeline({ limit = 50, qualify = true, headless = true,
       saveQualification(fresh, q);
       counts[q.tier] = (counts[q.tier] ?? 0) + 1;
       console.log(`  ${q.tier === 'outreach_ready' ? '*' : ' '} ${lead.brand_name}: ${q.tier} — ${q.tier_reason.slice(0, 90)}`);
+
+      // Funnel into dcsagoli, if this broker has it configured -- fire and
+      // log, never lets a CRM push failure interrupt qualification itself.
+      if (fresh.assigned_broker_id != null) {
+        const broker = getBroker(fresh.assigned_broker_id);
+        await pushLead({ ...fresh, ...q, qualified_at: now() }, broker);
+      }
     } catch (err) {
       console.log(`  ! ${lead.brand_name}: ${err.message.slice(0, 100)}`);
     }

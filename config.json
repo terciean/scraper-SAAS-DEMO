@@ -111,5 +111,8 @@
     "port": 5173,
     "batchSize": 20,
     "scrapeBatch": 10
+  },
+  "dcsagoli": {
+    "ingestUrl": ""
   }
 }
