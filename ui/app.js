@@ -5,6 +5,15 @@ const labelEl = document.getElementById('batchLabel');
 const toastEl = document.getElementById('toast');
 
 let leads = [];
+let searchQuery = '';
+
+// Filters what's shown, never what's counted -- stats/counts stay based on
+// the full set from the server regardless of what's typed in the search box.
+function matchesSearch(l) {
+  if (!searchQuery) return true;
+  const haystack = `${l.rawBrand} ${l.phone} ${l.category ?? ''} ${l.contactName ?? ''}`.toLowerCase();
+  return haystack.includes(searchQuery);
+}
 
 const api = async (path, body) => {
   const res = await fetch(path, body
@@ -53,9 +62,16 @@ function render() {
     emptyEl.textContent = 'No leads in the batch. Run `node cli.js scrape` to add more.';
     return;
   }
+
+  const visible = leads.filter(matchesSearch);
+  if (!visible.length) {
+    emptyEl.hidden = false;
+    emptyEl.textContent = `No leads match "${searchQuery}".`;
+    return;
+  }
   emptyEl.hidden = true;
 
-  leads.forEach((l, i) => {
+  visible.forEach((l, i) => {
     const tr = document.createElement('tr');
     tr.className = [l.pitchSent ? 'complete' : '', l.reach === 'no' ? 'unreachable' : '', l.noResponse ? 'flagged' : ''].filter(Boolean).join(' ');
     tr.dataset.id = l.id;
@@ -183,6 +199,10 @@ rowsEl.addEventListener('change', async (e) => {
 });
 
 document.getElementById('refresh').addEventListener('click', () => load({ announceNew: true }));
+document.getElementById('search').addEventListener('input', (e) => {
+  searchQuery = e.target.value.trim().toLowerCase();
+  render();
+});
 document.getElementById('logout').addEventListener('click', async () => {
   await api('/api/auth/logout', {});
   window.location.href = '/login.html';

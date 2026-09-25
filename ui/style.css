@@ -63,6 +63,17 @@ body {
 }
 .sub { color: var(--ink-faint); font-size: 12px; }
 
+.search { flex: 0 1 260px; }
+.search input {
+  width: 100%; font: inherit; font-size: 12.5px; padding: 6px 10px;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--bg); color: var(--ink);
+}
+.search input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px; border-color: var(--accent);
+}
+
 .stats { display: flex; gap: 18px; margin-left: auto; }
 .stat { text-align: right; }
 .stat b { display: block; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
